@@ -40,11 +40,6 @@
 
 (require 'org-ref-citeproc)
 
-(defcustom org-ref-notes-directory
-  "~/Dropbox/bibliography/helm-cite-notes/"
-  "Directory for notes to go in.")
-
-
 ;;* Variables
 (defvar orhc-bibtex-cache-data
   '((hashes . ())
@@ -185,9 +180,15 @@ easier to search specifically for them."
 	  "⌘"
 	" "))
      ((string= field "notes")
-      (if (file-exists-p (expand-file-name
-			  (concat (cdr (assoc "=key=" entry)) ".org")
-			  org-ref-notes-directory))
+      ;; One notes file per entry
+      (if (or (and (f-directory? org-ref-bibliography-notes)
+		   (file-exists-p (expand-file-name
+				   (concat (cdr (assoc "=key=" entry)) ".org")
+				   org-ref-bibliography-notes)))
+	      (and (f-file? org-ref-bibliography-notes)
+		   (with-current-buffer (find-file-noselect org-ref-bibliography-notes)
+		     (goto-char (point-min))
+		     (re-search-forward (concat ":CUSTOM_ID: " (cdr (assoc "=key=" entry))) nil t))))
 	  "✎"
 	" "))
      ;; catch all the other fields and just return them.
@@ -481,16 +482,23 @@ SOURCE is ignored, but required."
 				       (cdr (assoc "doi" x))))))))))
 
   ;; Notes, open or create.
-  (let ((note-file (expand-file-name
-		    (concat (cdr (assoc "=key=" candidate)) ".org")
-		    org-ref-notes-directory)))
-    (if (file-exists-p note-file)
-	(setq actions (append actions (list (cons "Open notes"
+  (when (f-directory? org-ref-bibliography-notes)
+    (let ((note-file (expand-file-name
+		      (concat (cdr (assoc "=key=" candidate)) ".org")
+		      org-ref-bibliography-notes)))
+      (if (file-exists-p note-file)
+	  (setq actions (append actions (list (cons "Open notes"
+						    (lambda (x)
+						      (find-file note-file))))))
+	(setq actions (append actions (list (cons "Create notes"
 						  (lambda (x)
-						    (find-file note-file))))))
-      (setq actions (append actions (list (cons "Create notes"
-						(lambda (x)
-						  (find-file note-file))))))))
+						    (find-file note-file)))))))))
+
+  (when (f-file? org-ref-bibliography-notes)
+    (setq actions (append actions (list (cons "Open notes"
+					      (lambda (x)
+						(funcall org-ref-notes-function
+							 (cdr (assoc "=key=" x)))))))))
 
   (setq actions (append
 		 actions

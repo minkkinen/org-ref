@@ -38,6 +38,7 @@
   (require 'cl))
 (require 'dash)
 (require 'doi-utils)
+(require 'f)
 (require 'helm-config)
 (require 'helm)
 (require 'helm-bibtex)
@@ -64,7 +65,9 @@
 
 (defcustom org-ref-bibliography-notes
   nil
-  "Filename where you will put all your notes about an entry in the default bibliography."
+  "File or directory where notes about an entry are saved. This
+can be either an org file where notes are saved as headings, or a
+directory where notes are saved as separate org files."
   :type 'file
   :group 'org-ref)
 
@@ -2753,19 +2756,21 @@ construct the heading by hand."
       (kill-ring-save (point-min) (point-max)))
 
     ;; now look for entry in the notes file
-    (save-restriction
-      (if  org-ref-bibliography-notes
-          (find-file-other-window org-ref-bibliography-notes)
-        (error "Org-ref-bib-bibliography-notes is not set to anything"))
+    (when (and (not (f-file? org-ref-bibliography-notes))
+	       (not (f-directory? org-ref-bibliography-notes)))
+      (error "Org-ref-bib-bibliography-notes must be either a file or a directory."))
 
-      (widen)
-      (goto-char (point-min))
-      (let* ((headlines (org-element-map
-			    (org-element-parse-buffer)
-			    'headline 'identity))
-	     (keys (mapcar
-		    (lambda (hl) (org-element-property :CUSTOM_ID hl))
-		    headlines)))
+    (when (f-file? org-ref-bibliography-notes)
+      (save-restriction
+	(find-file-other-window org-ref-bibliography-notes)
+	(widen)
+	(goto-char (point-min))
+	(let* ((headlines (org-element-map
+			      (org-element-parse-buffer)
+			      'headline 'identity))
+	       (keys (mapcar
+		      (lambda (hl) (org-element-property :CUSTOM_ID hl))
+		      headlines)))
 	;; put new entry in notes if we don't find it.
 	(if (-contains? keys key)
 	    (progn
@@ -2790,6 +2795,11 @@ construct the heading by hand."
 			 " [[file:%s][pdf]]\n\n"
 			 pdf)))))
 	  (save-buffer))))))
+
+  (when (f-directory? org-ref-bibliography-notes)
+    (find-file (expand-file-name
+		(concat key ".org")
+		org-ref-bibliography-notes))))
 
 
 ;;;###autoload

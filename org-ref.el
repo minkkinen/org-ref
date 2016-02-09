@@ -2761,45 +2761,39 @@ construct the heading by hand."
       (error "Org-ref-bib-bibliography-notes must be either a file or a directory."))
 
     (when (f-file? org-ref-bibliography-notes)
-      (save-restriction
+      ;; put new entry in notes if we don't find it.
+      (if (not (condition-case nil
+		   (org-open-link-from-string
+		    (concat "[[" org-ref-bibliography-notes "::#" key "]]"))
+		 (error t)))
+	  (progn
+	    (org-open-link-from-string (format "[[#%s]]" key))
+	    (funcall org-ref-open-notes-function))
+	;; no entry found, so add one
 	(find-file-other-window org-ref-bibliography-notes)
-	(widen)
-	(goto-char (point-min))
-	(let* ((headlines (org-element-map
-			      (org-element-parse-buffer)
-			      'headline 'identity))
-	       (keys (mapcar
-		      (lambda (hl) (org-element-property :CUSTOM_ID hl))
-		      headlines)))
-	;; put new entry in notes if we don't find it.
-	(if (-contains? keys key)
-	    (progn
-	      (org-open-link-from-string (format "[[#%s]]" key))
-	      (funcall org-ref-open-notes-function))
-	  ;; no entry found, so add one
-	  (goto-char (point-max))
-	  (insert (org-ref-reftex-format-citation
-		   entry (concat "\n" org-ref-note-title-format)))
-
-	  (insert (format "[[cite:%s]]" key))
-
-	  (setq pdf (expand-file-name (format "%s.pdf" key) org-ref-pdf-directory))
-	  (if (file-exists-p pdf)
+	(goto-char (point-max))
+	(insert (org-ref-reftex-format-citation
+		 entry (concat "\n" org-ref-note-title-format)))
+	
+	(insert (format "[[cite:%s]]" key))
+	  
+	(setq pdf (expand-file-name (format "%s.pdf" key) org-ref-pdf-directory))
+	(if (file-exists-p pdf)
+	    (insert (format
+		     " [[file:%s][pdf]]\n\n"
+		     pdf))
+	  ;; no pdf found. Prompt for a path, but allow no pdf to be inserted.
+	  (let ((pdf (read-file-name "PDF: " nil "no pdf" nil "no pdf")))
+	    (when (not (string= pdf "no pdf"))
 	      (insert (format
 		       " [[file:%s][pdf]]\n\n"
-		       pdf))
-	    ;; no pdf found. Prompt for a path, but allow no pdf to be inserted.
-	    (let ((pdf (read-file-name "PDF: " nil "no pdf" nil "no pdf")))
-	      (when (not (string= pdf "no pdf"))
-		(insert (format
-			 " [[file:%s][pdf]]\n\n"
-			 pdf)))))
-	  (save-buffer))))))
-
-  (when (f-directory? org-ref-bibliography-notes)
-    (find-file (expand-file-name
-		(concat key ".org")
-		org-ref-bibliography-notes))))
+		       pdf)))))
+	(save-buffer)))
+    
+    (when (f-directory? org-ref-bibliography-notes)
+      (find-file (expand-file-name
+		  (concat key ".org")
+		  org-ref-bibliography-notes)))))
 
 
 ;;;###autoload

@@ -2770,25 +2770,27 @@ construct the heading by hand."
 	    (org-open-link-from-string (format "[[#%s]]" key))
 	    (funcall org-ref-open-notes-function))
 	;; no entry found, so add one
-	(find-file-other-window org-ref-bibliography-notes)
-	(goto-char (point-max))
-	(insert (org-ref-reftex-format-citation
-		 entry (concat "\n" org-ref-note-title-format)))
-	
-	(insert (format "[[cite:%s]]" key))
-	  
-	(setq pdf (expand-file-name (format "%s.pdf" key) org-ref-pdf-directory))
-	(if (file-exists-p pdf)
-	    (insert (format
-		     " [[file:%s][pdf]]\n\n"
-		     pdf))
-	  ;; no pdf found. Prompt for a path, but allow no pdf to be inserted.
-	  (let ((pdf (read-file-name "PDF: " nil "no pdf" nil "no pdf")))
-	    (when (not (string= pdf "no pdf"))
+	(save-restriction
+	  (find-file-other-window org-ref-bibliography-notes)
+	  (widen)
+	  (goto-char (point-max))
+	  (insert (org-ref-reftex-format-citation
+		   entry (concat "\n" org-ref-note-title-format)))
+
+	  (insert (format "[[cite:%s]]" key))
+
+	  (setq pdf (expand-file-name (format "%s.pdf" key) org-ref-pdf-directory))
+	  (if (file-exists-p pdf)
 	      (insert (format
 		       " [[file:%s][pdf]]\n\n"
-		       pdf)))))
-	(save-buffer)))
+		       pdf))
+	    ;; no pdf found. Prompt for a path, but allow no pdf to be inserted.
+	    (let ((pdf (read-file-name "PDF: " nil "no pdf" nil "no pdf")))
+	      (when (not (string= pdf "no pdf"))
+		(insert (format
+			 " [[file:%s][pdf]]\n\n"
+			 pdf)))))
+	  (save-buffer))))
     
     (when (f-directory? org-ref-bibliography-notes)
       (find-file (expand-file-name

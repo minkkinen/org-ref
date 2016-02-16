@@ -4,7 +4,7 @@
 
 ;; Author: John Kitchin <jkitchin@andrew.cmu.edu>
 ;; URL: https://github.com/jkitchin/org-ref
-;; Version: 0.5.0
+;; Version: 0.6.0
 ;; Keywords: org-mode, cite, ref, label
 ;; Package-Requires: ((dash "2.11.0") (helm "1.5.5") (helm-bibtex "1.0.0") (hydra "0.13.2") (key-chord "0") (s "1.10.0") (f "0.18.0") (emacs "24.4"))
 
@@ -62,6 +62,12 @@
   :tag "Org Ref"
   :group 'org)
 
+(defcustom org-ref-clean-bibtex-key-function
+  (lambda (key)
+    (replace-regexp-in-string ":" "" key))
+  "Clean a bibtex key from unwanted characters"
+  :type 'function
+  :group 'org-ref)
 
 (defcustom org-ref-bibliography-notes
   nil
@@ -264,6 +270,7 @@ If you like `hydra', consider using `org-ref-cite-hydra'."
 (defcustom org-ref-show-citation-on-enter t
   "If non-nil show the citation summary.
 Uses a hook function to display the message in the minibuffer."
+  :type 'boolean
   :group 'org-ref)
 
 
@@ -335,6 +342,7 @@ save the point position."
 \(entry-type . (list of fields). This is used in
 `org-ref-sort-bibtex-entry'. Entry types not listed here will
 have fields sorted alphabetically."
+  :type '(alist :key-type 'string :value-type 'list)
   :group 'org-ref)
 
 
@@ -509,24 +517,28 @@ If so return the position for `goto-char'."
 (defcustom org-ref-colorize-links
   t
   "When non-nil, change colors of links."
+  :type 'boolean
   :group 'org-ref)
 
 
 (defcustom org-ref-cite-color
   "forest green"
   "Color of cite like links."
+  :type 'string
   :group 'org-ref)
 
 
 (defcustom org-ref-ref-color
   "dark red"
   "Color of ref like links."
+  :type 'string
   :group 'org-ref)
 
 
 (defcustom org-ref-label-color
   "dark magenta"
   "Color of label links."
+  :type 'string
   :group 'org-ref)
 
 
@@ -2019,17 +2031,10 @@ falling back to what the user has set in `org-ref-default-bibliography'"
 
 (defun org-ref-key-in-file-p (key filename)
   "Determine if the KEY is in the FILENAME."
-  (save-current-buffer
-    (let ((bibtex-files (list filename)))
-      ;; This is something I am trying because when the bibtex file is open, and
-      ;; you have added to it, the only way I find to get the update to update
-      ;; is to close it and reopen it. or to save it and revert it.
-      (when (get-file-buffer filename)
-        (set-buffer (get-file-buffer filename))
-        (when (buffer-modified-p (current-buffer))
-          (save-buffer)
-          (revert-buffer t t)))
-      (bibtex-search-entry key t))))
+  (with-temp-buffer
+    (insert-file-contents filename)
+    (bibtex-set-dialect (parsebib-find-bibtex-dialect) t)
+    (bibtex-search-entry key nil 0)))
 
 
 (defun org-ref-get-bibtex-key-and-file (&optional key)
@@ -2930,7 +2935,7 @@ If no bibliography is in the buffer the variable
 #+END_SRC" (concat (file-name-sans-extension (file-name-nondirectory (buffer-file-name))) ".bib") results))))))
 
 ;;** Find bad citations
-(defun org-ref-index (substring list)
+(defun org-ref-list-index (substring list)
   "Return the index of SUBSTRING in a LIST of strings."
   (let ((i 0)
         (found nil))
@@ -2961,7 +2966,7 @@ file.  Makes a new buffer with clickable links."
         (let ((plist (nth 1 link)))
           (when (-contains? org-ref-cite-types (plist-get plist :type))
             (dolist (key (org-ref-split-and-strip-string (plist-get plist :path)))
-              (when (not (org-ref-index key bibtex-keys))
+              (when (not (org-ref-list-index key bibtex-keys))
                 (setq
                  bad-citations
                  (append
@@ -2994,8 +2999,8 @@ file.  Makes a new buffer with clickable links."
   "Return a list of conses (key . marker) where key does not exist in the known bibliography files, and marker points to the key."
   (let* ((cp (point))			; save to return to later
          (bibtex-files (cl-loop for f in (org-ref-find-bibliography)
-			     if (file-exists-p f)
-			     collect f))
+				if (file-exists-p f)
+				collect f))
          (bibtex-file-path (mapconcat
                             (lambda (x)
                               (file-name-directory (file-truename x)))
@@ -3009,7 +3014,7 @@ file.  Makes a new buffer with clickable links."
         (let ((plist (nth 1 link)))
           (when (-contains? org-ref-cite-types (plist-get plist :type))
             (dolist (key (org-ref-split-and-strip-string (plist-get plist :path)))
-              (when (not (org-ref-index key bibtex-keys))
+              (when (not (org-ref-list-index key bibtex-keys))
                 (goto-char (plist-get plist :begin))
                 (re-search-forward key)
                 (push (cons key (point-marker)) bad-citations))))))
@@ -3386,22 +3391,22 @@ at the end of you file.
 
 (defun orcb-key ()
   "Replace the key in the entry."
-  (let ((key (bibtex-generate-autokey)))
+  (let ((key (funcall org-ref-clean-bibtex-key-function (bibtex-generate-autokey))))
       ;; first we delete the existing key
       (bibtex-beginning-of-entry)
       (re-search-forward bibtex-entry-maybe-empty-head)
       (if (match-beginning bibtex-key-in-head)
-	  (delete-region (match-beginning bibtex-key-in-head)
-			 (match-end bibtex-key-in-head)))
+    (delete-region (match-beginning bibtex-key-in-head)
+       (match-end bibtex-key-in-head)))
       ;; check if the key is in the buffer
       (when (save-excursion
-	      (bibtex-search-entry key))
-	(save-excursion
-	  (bibtex-search-entry key)
-	  (bibtex-copy-entry-as-kill)
-	  (switch-to-buffer-other-window "*duplicate entry*")
-	  (bibtex-yank))
-	(setq key (bibtex-read-key "Duplicate Key found, edit: " key)))
+        (bibtex-search-entry key))
+  (save-excursion
+    (bibtex-search-entry key)
+    (bibtex-copy-entry-as-kill)
+    (switch-to-buffer-other-window "*duplicate entry*")
+    (bibtex-yank))
+  (setq key (bibtex-read-key "Duplicate Key found, edit: " key)))
 
       (insert key)
       (kill-new key)))
@@ -3476,7 +3481,7 @@ See functions in `org-ref-clean-bibtex-entry-hook'."
     (when (-contains? org-ref-cite-types type)
       (setq key (org-ref-get-bibtex-key-under-cursor))
       (setq keys (org-ref-split-and-strip-string link-string))
-      (setq i (org-ref-index key keys))  ;; defined in org-ref
+      (setq i (org-ref-list-index key keys))  ;; defined in org-ref
       (if (> direction 0) ;; shift right
           (org-ref-swap-keys i (+ i 1) keys)
         (org-ref-swap-keys i (- i 1) keys))
@@ -3895,7 +3900,7 @@ change the key at point to the selected keys."
        ((equal helm-current-prefix-arg nil)
 	(cond
 	 ;; point after :
-	 ((looking-back ":")
+	 ((looking-back ":" (- (point) 2))
 	  (insert (concat (mapconcat 'identity keys ",") ",")))
 	 ;; point on :
 	 ((looking-at ":")
@@ -3906,7 +3911,7 @@ change the key at point to the selected keys."
 	  (re-search-forward ":")
 	  (insert (concat (mapconcat 'identity keys ",") ",")))
 	 ;; after ,
-	 ((looking-back ",")
+	 ((looking-back "," (- (point) 2))
 	  (insert (concat (mapconcat 'identity keys ",") ",")))
 	 ;; on comma
 	 ((looking-at ",")
@@ -3966,13 +3971,13 @@ change the key at point to the selected keys."
 
 (defun org-ref-save-all-bibtex-buffers ()
   "Save all bibtex-buffers."
-  ; moved from inside `org-ref-helm-insert-cite-link' so it can also be used elsewhere
+					; moved from inside `org-ref-helm-insert-cite-link' so it can also be used elsewhere
   (cl-loop for buffer in (buffer-list)
 	   do
 	   (with-current-buffer buffer
 	     (when (and (buffer-file-name) (f-ext? (buffer-file-name) "bib"))
 	       (save-buffer)))))
-  
+
 
 ;;;###autoload
 (defun org-ref-helm-insert-cite-link (arg)
@@ -4128,7 +4133,7 @@ Checks for pdf and doi, and add appropriate functions."
                                       (setq
                                        key (org-ref-get-bibtex-key-under-cursor)
                                        keys (org-ref-split-and-strip-string link-string)
-                                       i (org-ref-index key keys)
+                                       i (org-ref-list-index key keys)
                                        last-key (car (reverse keys)))
 
                                       (setq keys (-remove-at i keys))
@@ -4144,7 +4149,7 @@ Checks for pdf and doi, and add appropriate functions."
                                         (when
                                             (save-excursion
                                               (goto-char end)
-                                              (looking-back " ")) " ")))))))
+                                              (looking-back " " (- (point) 2))) " ")))))))
      t)
 
     (add-to-list

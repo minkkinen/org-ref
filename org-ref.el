@@ -423,6 +423,16 @@ Copies the string to the clipboard."
     (message version-string)))
 
 
+(defun org-ref-report-issue ()
+  "Report an issue in org-ref.
+Opens https://github.com/jkitchin/org-ref/issues/new."
+  (save-window-excursion
+    (org-ref-debug)
+    (kill-new (buffer-string)))
+  (message "org-ref-debug has been run. You can paste the results in the issue website if you like.")
+  (browse-url "https://github.com/jkitchin/org-ref/issues/new"))
+
+
 ;;* Messages for link at cursor
 (defvar org-ref-message-timer nil
   "Variable to store the link message timer in.")
@@ -546,8 +556,8 @@ If so return the position for `goto-char'."
   (concat "\\(" (mapconcat
                  (lambda (x)
 		   (replace-regexp-in-string "\*" "\\\\*" x))
-                 org-ref-cite-types "\\|") "\\)"
-                 ":\\([a-zA-Z0-9-_:\\./]+,?\\)+")
+                 org-ref-cite-types "\\|") ":\\)"
+                 "\\([a-zA-Z0-9-_:\\./]+,?\\)+")
   "Regexp for cite links.")
 
 
@@ -1588,7 +1598,7 @@ A number greater than one means multiple labels!"
 
 (defun org-ref-get-custom-ids ()
   "Return a list of custom_id properties in the buffer."
-  (unless (file-exists-p (buffer-file-name))
+  (when (and (buffer-file-name) (file-exists-p (buffer-file-name)))
     (save-buffer))
   (let ((results '()) custom_id)
     (org-map-entries
@@ -1998,7 +2008,7 @@ falling back to what the user has set in `org-ref-default-bibliography'"
 
       ;; we did not find a bibliography link. now look for \bibliography
       (goto-char (point-min))
-      (when (re-search-forward "\\\\bibliography{\\([^}]+\\)}" nil t)
+      (when (re-search-forward "\\\\bibliography{\\(.*?\\)}" nil t)
         ;; split, and add .bib to each file
         (setq org-ref-bibliography-files
               (mapcar (lambda (x) (concat x ".bib"))
@@ -2016,7 +2026,7 @@ falling back to what the user has set in `org-ref-default-bibliography'"
 
       ;; one last attempt at the latex addbibresource
       (goto-char (point-min))
-      (when (re-search-forward "\\addbibresource{\\([^}]+\\)}" nil t)
+      (when (re-search-forward "\\addbibresource{\\(.*?\\)}" nil t)
 	(setq org-ref-bibliography-files
 	      (mapcar 'org-ref-strip-string (split-string (match-string 1) ",")))
 	(throw 'result org-ref-bibliography-files))
@@ -2034,7 +2044,7 @@ falling back to what the user has set in `org-ref-default-bibliography'"
   (with-temp-buffer
     (insert-file-contents filename)
     (bibtex-set-dialect (parsebib-find-bibtex-dialect) t)
-    (bibtex-search-entry key nil 0)))
+    (bibtex-search-entry key)))
 
 
 (defun org-ref-get-bibtex-key-and-file (&optional key)
@@ -3058,33 +3068,54 @@ file.  Makes a new buffer with clickable links."
       (dolist (label labels)
         (when (> (-count (lambda (a)
                            (equal a label))
-                         labels) 1)
-          ;; this is a multiply defined label.
+                         labels)
+		 1)
+          ;; this means there are multiply defined labels. now we find them.
           (let ((cp (point)))
             (goto-char (point-min))
+	    ;; regular org label:tag links
             (while (re-search-forward
                     (format  "[^#+]label:%s\\s-" label) nil t)
-              (push (cons label (point-marker)) multiple-labels))
+              (cl-pushnew (cons label (point-marker)) multiple-labels
+			  :test (lambda (a b)
+				  (and (string= (car a) (car b))
+				       (= (marker-position (cdr a))
+					  (marker-position (cdr b)))))))
+
             (goto-char (point-min))
+	    ;; latex style
             (while (re-search-forward
                     (format  "\\label{%s}\\s-?" label) nil t)
-              (push (cons label (point-marker)) multiple-labels))
+              (cl-pushnew (cons label (point-marker)) multiple-labels
+			  :test (lambda (a b)
+				  (and (string= (car a) (car b))
+				       (= (marker-position (cdr a))
+					  (marker-position (cdr b)))))))
 
+	    ;; keyword style
             (goto-char (point-min))
             (while (re-search-forward
                     (format  "^#\\+label:\\s-*%s" label) nil t)
-              (push (cons label (point-marker)) multiple-labels))
+              (cl-pushnew (cons label (point-marker)) multiple-labels
+			  :test (lambda (a b)
+				  (and (string= (car a) (car b))
+				       (= (marker-position (cdr a))
+					  (marker-position (cdr b)))))))
 
             (goto-char (point-min))
             (while (re-search-forward
                     (format   "^#\\+tblname:\\s-*%s" label) nil t)
-              (push (cons label (point-marker)) multiple-labels))
+              (cl-pushnew (cons label (point-marker)) multiple-labels
+			  :test (lambda (a b)
+				  (and (string= (car a) (car b))
+				       (= (marker-position (cdr a))
+					  (marker-position (cdr b)))))))
             (goto-char cp)))))
     multiple-labels))
 
 
 (defun org-ref-bad-file-link-candidates ()
-  "Return list of conses (link . marker) wehre the file in the link does not exist."
+  "Return list of conses (link . marker) where the file in the link does not exist."
   (let* ((bad-files '()))
     (org-element-map (org-element-parse-buffer) 'link
       (lambda (link)
@@ -3508,6 +3539,29 @@ See functions in `org-ref-clean-bibtex-entry-hook'."
 (add-hook 'org-shiftleft-hook (lambda () (org-ref-swap-citation-link -1)))
 
 ;;** C-arrow navigation of cite keys
+(defun org-ref-parse-cite ()
+  "Parse link to get cite keys, and start and end of the keys."
+  (interactive)
+  (let ((link (org-element-context))
+	path begin end
+	keys)
+
+    (unless (-contains? org-ref-cite-types
+			(org-element-property :type link))
+      (error "Not on a cite link"))
+    (setq path (org-element-property :path link)
+	  begin	  (org-element-property :begin link)
+	  end (org-element-property :end link))
+
+    (setq keys (org-ref-split-and-strip-string path))
+    (save-excursion
+      (loop for key in keys
+	    do
+	    (goto-char begin)
+	    (re-search-forward key end)
+	    collect
+	    (list key (match-beginning 0) (match-end 0))))))
+
 ;;;###autoload
 (defun org-ref-next-key ()
   "Move cursor to the next cite key when on a cite link.
@@ -3516,33 +3570,79 @@ move to the beginning of the next cite link after this one."
   (interactive)
   (if (-contains? org-ref-cite-types
 		  (org-element-property :type (org-element-context)))
-      (when (re-search-forward "[, \\.;:!?]")
-	;; If we go off a link, jump to the beginning of the next one
-	(when (not (-contains? org-ref-cite-types
-			       (org-element-property
-				:type (org-element-context))))
-	  (when (re-search-forward org-ref-cite-re nil t)
-	    (goto-char (match-beginning 0)))))
+      ;; We are on a link, go to next key or cite link
+      (let ((cps (org-ref-parse-cite))
+	    (p (point)))
+	(cond
+	 ;; point is before first key
+	 ((< (point) (nth 1 (car cps)))
+	  (goto-char (nth 1 (car cps))))
+	 ;; point is on a single key, or on the last key
+	 ((or (= 1 (length cps))
+	      (> p (nth 1 (car (last cps)))))
+	  (re-search-forward org-ref-cite-re nil t)
+	  (goto-char (match-end 1))
+	  (forward-char 1))
+	 ;; in a link with multiple keys. We need to figure out if there is a
+	 ;; next key and go to beginning
+	 (t
+	  (goto-char (min
+		      (point-max)
+		      (+ 1
+			 (loop for (k s e) in cps
+			       if (and (>= p s)
+				       (<= p e))
+			       return e))))))
+	;; if we get off a link,jump to the next one.
+	(when
+	    (not (-contains? org-ref-cite-types
+			     (org-element-property
+			      :type
+			      (org-element-context))))
+	  (when  (re-search-forward org-ref-cite-re nil t)
+	    (goto-char (match-beginning 0))
+	    (re-search-forward ":"))))
     (right-word)))
 
 
 ;;;###autoload
 (defun org-ref-previous-key ()
   "Move cursor to the previous cite key when on a cite link.
-Otherwise run `left-word'. If cursor moves off the link, jump to
-the end of the next cite link before this one."
+Otherwise run `left-word'. If the cursor moves off the link,
+move to the beginning of the previous cite link after this one."
   (interactive)
   (if (-contains? org-ref-cite-types
-		  (org-element-property
-		   :type (org-element-context)))
-      (when (re-search-backward "[, \\.;:!?]")
-	(when (not (-contains? org-ref-cite-types
-			       (org-element-property
-				:type (org-element-context))))
+		  (org-element-property :type (org-element-context)))
+      ;; We are on a link, go to next key or cite link
+      (let ((cps (org-ref-parse-cite))
+	    (p (point))
+	    index)
+	(cond
+	 ;; point is on or before first key, go to previous link.
+	 ((<= (point) (nth 1 (car cps)))
+	  (unless (re-search-backward org-ref-cite-re nil t)
+	    (left-word))
 	  (when (re-search-backward org-ref-cite-re nil t)
 	    (goto-char (match-end 0))
-	    (backward-char))))
+	    (re-search-backward ",\\|:")
+	    (forward-char)))
+	 ;; point is less than end of first key, goto beginning
+	 ((< p (nth 2 (car cps)))
+	  ;; we do this twice. the first one just goes to the beginning of the
+	  ;; current link
+	  (goto-char (nth 1 (car cps))))
+	 ;; in a link with multiple keys. We need to figure out if there is a
+	 ;; previous key and go to beginning
+	 (t
+	  (setq index (loop
+		       for i from 0
+		       for (k s e) in cps
+		       if (and (>= p s)
+			       (<= p e))
+		       return i))
+	  (goto-char (nth 1 (nth (- index 1) cps))))))
     (left-word)))
+
 
 (define-key org-mode-map (kbd "<C-right>") 'org-ref-next-key)
 (define-key org-mode-map (kbd "<C-left>") 'org-ref-previous-key)
@@ -4015,9 +4115,10 @@ With two prefix ARGs, insert a label link."
       (-insert-at 1 '("WOS" . "http://gateway.webofknowledge.com/gateway/Gateway.cgi?topic=%s&GWVersion=2&SrcApp=WEB&SrcAuth=HSB&DestApp=UA&DestLinkType=GeneralSearchSummary") helm-bibtex-fallback-options))
 
 
-(defun org-ref-get-citation-string-at-point ()
-  "Get a string of a formatted citation."
-  (let* ((results (org-ref-get-bibtex-key-and-file))
+(defun org-ref-get-citation-string-at-point (&optional key)
+  "Get a string of a formatted citation for the KEY.
+If no KEY is provided, get the KEY at point."
+  (let* ((results (org-ref-get-bibtex-key-and-file key))
          (key (car results))
          (bibfile (cdr results)))
     (if bibfile

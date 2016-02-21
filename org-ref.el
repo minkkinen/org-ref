@@ -600,60 +600,76 @@ If so return the position for `goto-char'."
   "Search forward to next cite link up to LIMIT
 Add a tooltip to the match."
   (when (and (re-search-forward org-ref-cite-re limit t)
+	     ;; make sure we are not in a comment
 	     (save-excursion
 	       (beginning-of-line)
 	       (not (looking-at "# "))))
+    ;; we think we are on a cite link lets get on it and make sure
     (forward-char -2)
     (let ((this-link (org-element-context)))
-      (add-text-properties
-       (org-element-property :begin this-link)
-       (- (org-element-property :end this-link)
-	  (org-element-property :post-blank this-link))
-       (list
-	'help-echo (lambda (window object position)
-		     (save-excursion
-		       (goto-char position)
-		       ;; Here we wrap the citation string to a reasonable size.
-		       (let ((s (org-ref-get-citation-string-at-point)))
-			 (with-temp-buffer
-			   (insert s)
-			   (fill-paragraph)
-			   (buffer-string)))))))
-      (set-match-data
-       (list (org-element-property :begin this-link)
+      (if (-contains? org-ref-cite-types (org-element-property :type this-link))
+	  ;; we are on a cite link
+	  (progn
+	    (add-text-properties
+	     (org-element-property :begin this-link)
 	     (- (org-element-property :end this-link)
-		(org-element-property :post-blank this-link))))
-      (goto-char (org-element-property :end this-link)))))
+		(org-element-property :post-blank this-link))
+	     (list
+	      'help-echo (lambda (window object position)
+			   (save-excursion
+			     (goto-char position)
+			     ;; Here we wrap the citation string to a reasonable size.
+			     (let ((s (org-ref-get-citation-string-at-point)))
+			       (with-temp-buffer
+				 (insert s)
+				 (fill-paragraph)
+				 (buffer-string)))))))
+	    (set-match-data
+	     (list (org-element-property :begin this-link)
+		   (- (org-element-property :end this-link)
+		      (org-element-property :post-blank this-link))))
+	    (goto-char (org-element-property :end this-link)))
+	;; Must be a false match.
+	;; somehow were not on a
+	;; cite link, so we try
+	;; again.
+	(org-ref-match-next-cite-link limit)))))
 
 
 (defun org-ref-match-next-label-link (limit)
   "Find next label link up to LIMIT.
 Add tooltip."
-  (when (and (re-search-forward "label:\\([[:alnum:]]\\)\\{2,\\}" limit t)
-	     ;; not in a comment
-	     (save-excursion
-	       (beginning-of-line)
-	       (not (looking-at "# "))))
-    (forward-char -2)
-    (let ((this-link (org-element-context)))
-      (add-text-properties
-       (org-element-property :begin this-link)
-       (- (org-element-property :end this-link)
-	  (org-element-property :post-blank this-link))
-       (list
-	'help-echo (lambda (window object position)
-		     (save-excursion
-		       (goto-char position)
-		       (let ((s (org-ref-link-message)))
-			 (with-temp-buffer
-			   (insert s)
-			   (fill-paragraph)
-			   (buffer-string)))))))
-      (set-match-data
-       (list (org-element-property :begin this-link)
-	     (- (org-element-property :end this-link)
-		(org-element-property :post-blank this-link))))
-      (goto-char (org-element-property :end this-link)))))
+  (if (and (re-search-forward "label:\\([[:alnum:]]\\)\\{2,\\}" limit t)
+	   ;; make sure we are not in a comment
+	   (save-excursion
+	     (beginning-of-line)
+	     (not (looking-at "# "))))
+      (progn
+	(forward-char -2)
+	(let ((this-link (org-element-context)))
+	  (if (string= "label" (org-element-property :type this-link))
+	      ;; on a label
+	      (progn
+		(add-text-properties
+		 (org-element-property :begin this-link)
+		 (- (org-element-property :end this-link)
+		    (org-element-property :post-blank this-link))
+		 (list
+		  'help-echo (lambda (window object position)
+			       (save-excursion
+				 (goto-char position)
+				 (let ((s (org-ref-link-message)))
+				   (with-temp-buffer
+				     (insert s)
+				     (fill-paragraph)
+				     (buffer-string)))))))
+		(set-match-data
+		 (list (org-element-property :begin this-link)
+		       (- (org-element-property :end this-link)
+			  (org-element-property :post-blank this-link))))
+		(goto-char (org-element-property :end this-link)))
+	    ;; false match
+	    (org-ref-match-next-label limit))))))
 
 
 (defun org-ref-match-next-ref-link (limit)
@@ -661,29 +677,37 @@ Add tooltip."
 Add tooltip to the link. We avoid tags by not finding :ref: in
 tags."
   (when (and (re-search-forward "[^:]ref:\\([[:alnum:]]\\)\\{2,\\}" limit t)
+	     ;; make sure we are not on a comment
 	     (save-excursion
 	       (beginning-of-line)
 	       (not (looking-at "# "))))
+    ;; we think we are on a ref link, lets make sure.
     (forward-char -2)
     (let ((this-link (org-element-context)))
-      (add-text-properties
-       (org-element-property :begin this-link)
-       (- (org-element-property :end this-link)
-	  (org-element-property :post-blank this-link))
-       (list
-	'help-echo (lambda (window object position)
-		     (save-excursion
-		       (goto-char position)
-		       (let ((s (org-ref-link-message)))
-			 (with-temp-buffer
-			   (insert s)
-			   (fill-paragraph)
-			   (buffer-string)))))))
-      (set-match-data
-       (list (org-element-property :begin this-link)
+      (if (string= "ref" (org-element-property :type this-link))
+	  ;; we are, so we do our business
+	  (progn
+	    (add-text-properties
+	     (org-element-property :begin this-link)
 	     (- (org-element-property :end this-link)
-		(org-element-property :post-blank this-link))))
-      (goto-char (org-element-property :end this-link)))))
+		(org-element-property :post-blank this-link))
+	     (list
+	      'help-echo (lambda (window object position)
+			   (save-excursion
+			     (goto-char position)
+			     (let ((s (org-ref-link-message)))
+			       (with-temp-buffer
+				 (insert s)
+				 (fill-paragraph)
+				 (buffer-string)))))))
+	    (set-match-data
+	     (list (org-element-property :begin this-link)
+		   (- (org-element-property :end this-link)
+		      (org-element-property :post-blank this-link))))
+	    (goto-char (org-element-property :end this-link)))
+	;; False match, let's try again
+	(org-ref-match-next-ref-link limit)))))
+
 
 (defun org-ref-match-next-bibliography-link (limit)
   "Find next bibliography link up to LIMIT.
@@ -1155,7 +1179,7 @@ some things are escaped since odt is an xml format."
 				"\\.bib" ""
 				(mapconcat
 				 'identity
-				 (mapcar 'expand-file-name
+				 (mapcar 'file-relative-name
 					 (split-string keyword ","))
 				 ",")))))))
 
@@ -1203,7 +1227,8 @@ some things are escaped since odt is an xml format."
                                (setq key-beginning (+ (match-beginning 0) 1)) ; we found a match
                              (setq key-beginning (point)))) ; no match found
                          ;; save the key we clicked on.
-                         (setq bibfile (org-ref-strip-string (buffer-substring key-beginning key-end)))
+                         (setq bibfile (org-ref-strip-string
+					(buffer-substring key-beginning key-end)))
                          (find-file bibfile)))) ; open file on click
 
                    ;; formatting code
@@ -1219,8 +1244,8 @@ some things are escaped since odt is an xml format."
                                (replace-regexp-in-string
                                 "\\.bib" ""
                                 (mapconcat 'identity
-                                           (mapcar 'expand-file-name
-                                                   (split-string keyword ","))
+                                           (mapcar 'file-relative-name
+						   (split-string keyword ","))
                                            ",")))))))
 
 
@@ -4130,6 +4155,90 @@ If no KEY is provided, get the KEY at point."
             (org-ref-bib-citation)))
       "!!! No entry found !!!" )))
 
+(defun org-ref-delete-cite-at-point ()
+  "Delete the citation link at point."
+  (let* ((cite (org-element-context))
+	 (type (org-element-property :type cite)))
+    (when (-contains? org-ref-cite-types type)
+      (cl--set-buffer-substring
+       (org-element-property :begin cite)
+       (org-element-property :end cite)
+       ""))))
+
+(defun org-ref-delete-key-at-point ()
+  "Delete the key at point."
+  (save-excursion
+    (let* ((cite (org-element-context))
+	   (path (org-element-property :path cite))
+	   (keys (org-ref-split-and-strip-string path))
+	   (key (org-ref-get-bibtex-key-under-cursor))
+	   (begin (org-element-property :begin cite))
+	   (end (org-element-property :end cite))
+	   (type (org-element-property :type cite))
+	   (bracketp (string= "[[" (buffer-substring begin (+ 2 begin))))
+	   (trailing-space (if (save-excursion
+				 (goto-char end)
+				 (string= (string (preceding-char)) " "))
+			       " " "")))
+
+      (setq keys (-remove-item key keys))
+      (setf (buffer-substring begin end)
+	    (concat
+	     (when bracketp "[[")
+	     type ":" (mapconcat 'identity keys ",")
+	     (when bracketp "]]")
+	     trailing-space)))))
+
+
+(defun org-ref-replace-key-at-point (&optional replacement-keys)
+  "Replace the key at point.
+Optional REPLACEMENT-KEYS should be a string of comma-separated
+keys. if it is not specified, find keys interactively."
+  (save-excursion
+    (let* ((cite (org-element-context))
+	   (opath (org-element-property :path cite))
+	   (okeys (org-ref-split-and-strip-string opath))
+	   (okey (org-ref-get-bibtex-key-under-cursor))
+	   (end (org-element-property :end cite)))
+      ;; First, insert new keys at end
+      (save-excursion
+	(goto-char end)
+	(skip-chars-backward " ")
+	(if replacement-keys
+	    (insert (format ",%s" replacement-keys))
+	  (funcall org-ref-insert-cite-function)))
+
+      ;; Now get the new keys, delete the old one and put the new ones in
+      (let* ((cite (org-element-context))
+	     (type (org-element-property :type cite))
+	     (path (org-element-property :path cite))
+	     (keys (org-ref-split-and-strip-string path))
+	     (new-keys (-difference keys okeys))
+	     (key (org-ref-get-bibtex-key-under-cursor))
+	     (begin (org-element-property :begin cite))
+	     (end (org-element-property :end cite))
+	     (bracketp (string= "[[" (buffer-substring begin (+ 2 begin))))
+	     (trailing-space (if (save-excursion
+				   (goto-char end)
+				   (string= (string (preceding-char)) " "))
+				 " " ""))
+	     (index (org-ref-list-index key keys)))
+	;; keys here has the old key at index, and the new keys at the end.
+	;; delete old key
+	(setq keys (-remove-at index keys))
+	(dolist (nkey (reverse new-keys))
+	  (setq keys (-insert-at index nkey keys)))
+
+	;; now remove off the end keys which are now duplicated.
+	(setq keys (nbutlast keys (length new-keys)))
+
+	(setf (buffer-substring begin end)
+	      (concat
+	       (when bracketp "[[")
+	       type ":" (mapconcat 'identity keys ",")
+	       (when bracketp "]]")
+	       trailing-space))))))
+
 
 (defun org-ref-cite-candidates ()
   "Generate the list of possible candidates for click actions on a cite link.
@@ -4205,64 +4314,19 @@ Checks for pdf and doi, and add appropriate functions."
 
     (add-to-list
      'candidates
-     '("Delete key at point" . (lambda ()
-                                 (let ((key (org-ref-get-bibtex-key-under-cursor)))
-                                   (re-search-backward ":")
-                                   (re-search-forward (concat key ",?"))
-                                   (setf (buffer-substring
-                                          (match-beginning 0)
-                                          (match-end 0))
-                                         ""))))
+     '("Delete key at point" . org-ref-delete-key-at-point)
      t)
 
     ;;  This is kind of clunky. We store the key at point. Add the new ref. Get
     ;;  it off the end, and put it in the original position.
     (add-to-list
      'candidates
-     '("Replace key at point" . (lambda ()
-                                  (let ((key (org-ref-get-bibtex-key-under-cursor)))
-                                    ;; add new citation
-                                    (save-excursion
-                                      (org-ref-helm-insert-cite-link nil))
-                                    (let*  ((object (org-element-context))
-                                            (type (org-element-property :type object))
-                                            (begin (org-element-property :begin object))
-                                            (end (org-element-property :end object))
-                                            (link-string (org-element-property :path object))
-                                            key keys i last-key)
-
-                                      (setq
-                                       key (org-ref-get-bibtex-key-under-cursor)
-                                       keys (org-ref-split-and-strip-string link-string)
-                                       i (org-ref-list-index key keys)
-                                       last-key (car (reverse keys)))
-
-                                      (setq keys (-remove-at i keys))
-                                      (setq keys (-insert-at i last-key (butlast keys)))
-
-                                      (cl--set-buffer-substring
-                                       begin end
-                                       (concat
-                                        type ":" (mapconcat 'identity keys ",")
-                                        ;; It seems the space at the end can get consumed, so we see if there
-                                        ;; is a space, and add it if so. Sometimes there is a comma or period,
-                                        ;; then we do not want a space.
-                                        (when
-                                            (save-excursion
-                                              (goto-char end)
-                                              (looking-back " " (- (point) 2))) " ")))))))
+     '("Replace key at point" . org-ref-replace-key-at-point)
      t)
 
     (add-to-list
      'candidates
-     '("Delete citation at point" . (lambda ()
-                                      (let*  ((object (org-element-context))
-                                              (type (org-element-property :type object))
-                                              (begin (org-element-property :begin object))
-                                              (end (org-element-property :end object)))
-                                        (cl--set-buffer-substring
-                                         begin end
-                                         ""))))
+     '("Delete citation at point" . org-ref-delete-cite-at-point)
      t)
 
     (add-to-list

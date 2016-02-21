@@ -14,6 +14,8 @@
 (require 'org-ref)
 (load-file "tests/org-test.el")
 
+
+
 (when (require 'undercover nil t)
   (undercover "org-ref.el" (:exclude "*-test.el")))
 
@@ -213,7 +215,7 @@ bibliography:tests/test-1.bib
 	(org-ref-find-bibliography))))))
 
 
-;;* bibtex tests We rely alot on bibtex functionality. These are tests to make
+;;* bibtex tests We rely a lot on bibtex functionality. These are tests to make
 ;; sure it works as we expect. I don't have clear evidence, but I feel like I
 ;; have had trouble with the in the past.
 (ert-deftest bib-1 ()
@@ -414,6 +416,197 @@ file:not.here  [[./or.here]] and not attachfile:or.anywhere"
 	  "cite:key1,key2"
 	(goto-char 11)
 	(org-ref-previous-key) (point)))))
+
+;;* delete replace keys
+(ert-deftest del-key-1 ()
+  (should
+   (string= "cite:key2 test"
+	    (org-test-with-temp-text
+		"cite:key1,key2 test"
+	      (goto-char 6)
+	      (org-ref-delete-key-at-point)
+	      (buffer-string)))))
+
+(ert-deftest del-key-2 ()
+  (should
+   (string= "cite:key1 test"
+	    (org-test-with-temp-text
+		"cite:key1,key2 test"
+	      (goto-char 11)
+	      (org-ref-delete-key-at-point)
+	      (buffer-string)))))
+
+(ert-deftest del-key-3 ()
+  (should
+   (string= "cite:key1 text"
+	    (org-test-with-temp-text
+		"cite:key1,key2 text"
+	      (goto-char 11)
+	      (org-ref-delete-key-at-point)
+	      (buffer-string)))))
+
+(ert-deftest del-key-4 ()
+  (should
+   (string= "cite:key2 text"
+	    (org-test-with-temp-text
+		"cite:key1,key2 text"
+	      (goto-char 6)
+	      (org-ref-delete-key-at-point)
+	      (buffer-string)))))
+
+(ert-deftest del-key-5 ()
+  (should
+   (string= "[[cite:key2]] text"
+	    (org-test-with-temp-text
+		"[[cite:key1,key2]] text"
+	      (goto-char 6)
+	      (org-ref-delete-key-at-point)
+	      (buffer-string)))))
+
+(ert-deftest del-cite-1 ()
+  (should
+   (string= "at text"
+	    (org-test-with-temp-text
+		"at [[cite:key1,key2]] text"
+	      (goto-char 6)
+	      (org-ref-delete-cite-at-point)
+	      (buffer-string)))))
+
+(ert-deftest del-cite-2 ()
+  (should
+   (string= "at text"
+	    (org-test-with-temp-text
+		"at citenum:key1,key2 text"
+	      (goto-char 6)
+	      (org-ref-delete-cite-at-point)
+	      (buffer-string)))))
+
+(ert-deftest rep-key-1 ()
+  (should
+   (string= "at citenum:key3,key2 text"
+	    (org-test-with-temp-text
+		"at citenum:key1,key2 text"
+	      (goto-char 12)
+	      (org-ref-replace-key-at-point "key3")
+	      (buffer-string)))))
+
+(ert-deftest rep-key-2 ()
+  (should
+   (string= "at citenum:key1,key3 text"
+	    (org-test-with-temp-text
+		"at citenum:key1,key2 text"
+	      (goto-char 17)
+	      (org-ref-replace-key-at-point "key3")
+	      (buffer-string)))))
+
+(ert-deftest rep-key-3 ()
+  (should
+   (string= "at citenum:key1,key3,key5 text"
+	    (org-test-with-temp-text
+		"at citenum:key1,key2 text"
+	      (goto-char 17)
+	      (org-ref-replace-key-at-point "key3,key5")
+	      (buffer-string)))))
+
+(ert-deftest rep-key-4 ()
+  (should
+   (string= "at citenum:key3,key5,key2 text"
+	    (org-test-with-temp-text
+		"at citenum:key1,key2 text"
+	      (goto-char 12)
+	      (org-ref-replace-key-at-point "key3,key5")
+	      (buffer-string)))))
+
+
+(ert-deftest sort-by-year ()
+  (should
+   (string= "cite:kitchin-2004-role,kitchin-2008-alloy"
+	    (org-test-with-temp-text
+		"cite:kitchin-2008-alloy,kitchin-2004-role
+
+bibliography:tests/test-1.bib
+"
+	      (org-ref-sort-citation-link)))))
+
+
+
+;;* exports
+(ert-deftest cite-export-1 ()
+  (should
+   (string=
+    "\\cite{kitchin-2008-alloy}
+"
+    (org-test-with-temp-text
+	"cite:kitchin-2008-alloy"
+      (org-latex-export-as-latex nil nil nil t)
+      (buffer-substring-no-properties (point-min) (point-max))))))
+
+(ert-deftest cite-export-2 ()
+  (should
+   (string=
+    "\\cite[page 2]{kitchin-2008-alloy}
+"
+    (org-test-with-temp-text
+	"[[cite:kitchin-2008-alloy][page 2]]"
+      (org-latex-export-as-latex nil nil nil t)
+      (buffer-substring-no-properties (point-min) (point-max))))))
+
+(ert-deftest cite-export-3 ()
+  (should
+   (string=
+    "\\cite[page 2][post text]{kitchin-2008-alloy}
+"
+    (org-test-with-temp-text
+	"[[cite:kitchin-2008-alloy][page 2::post text]]"
+      (org-latex-export-as-latex nil nil nil t)
+      (buffer-substring-no-properties (point-min) (point-max))))))
+
+(ert-deftest label-export-1 ()
+  (should
+   (string=
+    "\\label{test}
+"
+    (org-test-with-temp-text
+	"label:test"
+      (org-latex-export-as-latex nil nil nil t)
+      (buffer-substring-no-properties (point-min) (point-max))))))
+
+(ert-deftest ref-export-1 ()
+  (should
+   (string=
+    "\\ref{test}
+"
+    (org-test-with-temp-text
+	"ref:test"
+      (org-latex-export-as-latex nil nil nil t)
+      (buffer-substring-no-properties (point-min) (point-max))))))
+
+
+(ert-deftest bib-export-1 ()
+  (should
+   (string=
+    (format
+     "\\bibliography{%s}
+" (file-relative-name "test"))
+    (org-test-with-temp-text
+	"bibliography:test.bib"
+      (org-latex-export-as-latex nil nil nil t)
+      (buffer-substring-no-properties (point-min) (point-max))))))
+
+
+(ert-deftest bib-export-1 ()
+  (should
+   (string=
+    (format
+     "\\bibliography{%s,%s}
+" (file-relative-name "test")
+(file-relative-name "titles"))
+(org-test-with-temp-text
+    "bibliography:test.bib,titles.bib"
+  (org-latex-export-as-latex nil nil nil t)
+  (buffer-substring-no-properties (point-min) (point-max))))))
+
+
 
 
 (provide 'org-ref-test)
